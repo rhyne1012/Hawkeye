@@ -21,6 +21,12 @@ typedef struct {
     uint16_t ind_airspeed;       // cm/s
     uint16_t true_airspeed;      // cm/s
     uint64_t time_usec;          // timestamp (time since boot), microseconds
+    // Optional native ULog telemetry; zero-initialized live HIL keeps its IAS path.
+    float calibrated_airspeed;   // m/s, never stored in the IAS field
+    bool calibrated_airspeed_present;
+    bool calibrated_airspeed_valid;
+    float throttle_pct;         // reported command, not measured thrust or RPM
+    bool throttle_valid;
     bool valid;
 } hil_state_t;
 

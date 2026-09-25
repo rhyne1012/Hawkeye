@@ -57,3 +57,16 @@ if(TARGET raylib)
     target_compile_definitions(test_theme PRIVATE FIXTURES_DIR="${FIXTURES_DIR}")
     add_test(NAME theme COMMAND test_theme)
 endif()
+
+# Sparse, synthetic ULog: no LFS fixtures or private flight data required.
+add_executable(test_sparse_replay test_sparse_replay.c)
+target_link_libraries(test_sparse_replay PRIVATE hawkeye-core)
+add_test(NAME sparse_replay COMMAND test_sparse_replay)
+
+if(TARGET raylib)
+    add_executable(test_vehicle_telemetry test_vehicle_telemetry.c
+        ${CMAKE_SOURCE_DIR}/src/vehicle.c ${CMAKE_SOURCE_DIR}/src/theme.c
+        ${CMAKE_SOURCE_DIR}/src/asset_path.c)
+    target_link_libraries(test_vehicle_telemetry PRIVATE hawkeye-core raylib)
+    add_test(NAME vehicle_telemetry COMMAND test_vehicle_telemetry)
+endif()

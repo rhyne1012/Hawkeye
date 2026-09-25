@@ -286,8 +286,8 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
     snprintf(b, sizeof(b), "%.1f", pv->ground_speed);
     DrawTextEx(font_value, b, (Vector2){energy_start + energy_step + label_val_gap - 12 * scale, (float)text_y}, fsv, 0.5f, value_color);
 
-    DrawTextEx(font_label, "AS", (Vector2){energy_start + energy_step * 2, label_off_y}, fsl, 0.5f, label_color_dim);
-    if (pv->airspeed > 0.1f) {
+    DrawTextEx(font_label, pv->airspeed_is_cas ? "CAS" : "AS", (Vector2){energy_start + energy_step * 2, label_off_y}, fsl, 0.5f, label_color_dim);
+    if (pv->airspeed_valid) {
         snprintf(b, sizeof(b), "%.1f", pv->airspeed);
         DrawTextEx(font_value, b, (Vector2){energy_start + energy_step * 2 + label_val_gap - 12 * scale, (float)text_y}, fsv, 0.5f, value_color);
     } else {
@@ -302,6 +302,12 @@ static void draw_secondary_row(const hud_t *h, const vehicle_t *pv, int pidx,
                         (pv->vertical_speed < -0.1f) ? "v" : "";
     snprintf(b, sizeof(b), "%.1f%s", pv->vertical_speed, arrow);
     DrawTextEx(font_value, b, (Vector2){vs_x + label_val_gap - 12 * scale, (float)text_y}, fsv, 0.5f, vs_color);
+    float thr_x = energy_start + energy_step * 4;
+    DrawTextEx(font_label, "THR", (Vector2){thr_x, label_off_y}, fsl, 0.5f, label_color_dim);
+    if (pv->throttle_valid) snprintf(b, sizeof(b), "%.0f%%", pv->throttle_pct);
+    else snprintf(b, sizeof(b), "--");
+    DrawTextEx(font_value, b, (Vector2){thr_x + label_val_gap, (float)text_y}, fsv, 0.5f,
+               pv->throttle_valid ? value_color : label_color_dim);
 }
 
 void hud_draw(const hud_t *h, const vehicle_t *vehicles,
@@ -500,9 +506,9 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     float sep1_x = adi_cx + inst_radius + sep_margin;       // instruments | NAV
     float sep3_x = timer_x - sep_margin;                     // ENERGY | timer
 
-    // Distribute all 7 telemetry items with equal step across the zone
+    // Distribute all 8 telemetry items with equal step across the zone
     float tel_zone_w = sep3_x - sep1_x;
-    float item_step = tel_zone_w / 7.0f;
+    float item_step = tel_zone_w / 8.0f;
     float item_x0 = sep1_x + sep_margin;
 
     float nav_start = item_x0;
@@ -523,6 +529,10 @@ void hud_draw(const hud_t *h, const vehicle_t *vehicles,
     int label_y = bar_y + (int)(16 * s);
     int value_y = label_y + (int)(22 * s);
     float unit_y_off = (float)(int)(6 * s);
+
+    // Fit wide values (e.g. -100.0) without colliding with the next column.
+    float fit_value = (item_step - sep_margin - 4 * s) / 3.7f;
+    if (fs_value > fit_value) fs_value = fmaxf(10.0f, fit_value);
 
     // Telemetry layout (shared by primary telemetry and status group)
     hud_telemetry_layout_t tlay = {

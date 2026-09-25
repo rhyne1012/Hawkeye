@@ -50,6 +50,10 @@ typedef struct {
 
     int aspd_ias_offset;        // airspeed_validated: indicated_airspeed_m_s
     int aspd_tas_offset;        // true_airspeed_m_s
+    int aspd_cas_offset;        // calibrated_airspeed_m_s (optional)
+    int throttle_pct_offset;    // replay_throttle.throttle_pct
+    int throttle_valid_offset;
+    int throttle_sample_offset; // original source time, for staleness checks
 
     int vstatus_type_offset;    // vehicle_status: vehicle_type
     int vstatus_is_vtol_offset; // vehicle_status: is_vtol
@@ -58,6 +62,7 @@ typedef struct {
     int home_lat_offset;        // home_position: lat (double, deg)
     int home_lon_offset;        // home_position: lon (double, deg)
     int home_alt_offset;        // home_position: alt (float, m)
+    int home_valid_alt_offset;
     int home_valid_hpos_offset; // home_position: valid_hpos (uint8, bool)
 } ulog_field_cache_t;
 
@@ -79,6 +84,11 @@ typedef struct {
     int sub_airspeed;
     int sub_vehicle_status;
     int sub_home_pos;
+    int sub_throttle;
+
+    home_position_t initial_home;
+    bool initial_home_from_topic;
+    uint64_t throttle_sample_usec;
 
     ulog_field_cache_t cache;
 #endif

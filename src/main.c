@@ -46,6 +46,8 @@ static void print_usage(const char *prog) {
     printf("  -origin <lat> <lon> <alt>  NED origin in degrees/meters (default: PX4 SIH)\n");
     printf("  --replay <file1.ulg> [file2.ulg ...]  Replay ULog file(s)\n");
     printf("  --ghost <file1.ulg> [file2.ulg ...]   Ghost mode replay\n");
+    printf("  --paused      Start replay paused\n");
+    printf("  --seek <s>    Start replay at elapsed seconds\n");
     printf("  -w <width>     Window width (default: 1280)\n");
     printf("  -h <height>    Window height (default: 720)\n");
 }
@@ -159,6 +161,9 @@ int main(int argc, char *argv[]) {
     char *replay_paths[MAX_VEHICLES] = {0};
     int num_replay_files = 0;
     bool ghost_mode = false;
+    bool start_paused = false;
+    float initial_seek = 0.0f;
+    char bundled_replay[1024] = {0};
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-udp") == 0 && i + 1 < argc) {
@@ -201,17 +206,39 @@ int main(int argc, char *argv[]) {
                 }
                 replay_paths[num_replay_files++] = argv[++i];
             }
+        } else if (strcmp(argv[i], "--paused") == 0) {
+            start_paused = true;
+        } else if (strcmp(argv[i], "--seek") == 0 && i + 1 < argc) {
+            initial_seek = strtof(argv[++i], NULL);
         } else if (strcmp(argv[i], "--help") == 0) {
             print_usage(argv[0]);
             return 0;
         }
     }
 
+#ifdef __APPLE__
+    // Optional research bundle: Resources/replay.ulg opens offline on double
+    // click. Normal CLI builds retain their explicit --replay / live behavior.
+    snprintf(bundled_replay, sizeof(bundled_replay), "%s../Resources/replay.ulg",
+             GetApplicationDirectory());
+    if (FileExists(bundled_replay)) {
+        char resources[1024];
+        snprintf(resources, sizeof(resources), "%s../Resources", GetApplicationDirectory());
+        ChangeDirectory(resources);
+        if (argc == 1) {
+            replay_paths[0] = bundled_replay;
+            num_replay_files = 1;
+            start_paused = true;
+            model_idx = MODEL_FIXEDWING;
+            win_w = 1440; win_h = 900;
+        }
+    }
+#endif
     asset_path_init();
 
     // Init Raylib
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
-    InitWindow(win_w, win_h, "Hawkeye");
+    InitWindow(win_w, win_h, "Rhyne Flight Replay (based on Hawkeye)");
     SetTargetFPS(60);
 
     // Init data sources
@@ -226,6 +253,10 @@ int main(int argc, char *argv[]) {
                 CloseWindow();
                 return 1;
             }
+        }
+        for (int i = 0; i < num_replay_files; i++) {
+            data_source_seek(&sources[i], initial_seek);
+            sources[i].playback.paused = start_paused;
         }
         vehicle_count = num_replay_files;
     } else {

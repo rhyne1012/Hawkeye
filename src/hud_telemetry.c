@@ -70,7 +70,7 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
     }
 
-    // ENERGY group: ALT, GS, AS, VS (evenly spaced)
+    // ENERGY group: ALT, GS, AS, VS, THR (evenly spaced)
     // ALT
     {
         char b[16];
@@ -105,8 +105,8 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
     {
         char b[16];
         float x = energy_start + energy_step * 2;
-        DrawTextEx(h->font_label, "AS", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
-        if (v->airspeed > 0.1f) {
+        DrawTextEx(h->font_label, v->airspeed_is_cas ? "CAS" : "AS", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
+        if (v->airspeed_valid) {
             snprintf(b, sizeof(b), "%.1f", v->airspeed);
             DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, value_color);
             Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
@@ -132,8 +132,19 @@ void hud_draw_telemetry(const hud_t *h, const vehicle_t *v,
         DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f, vs_color);
         Vector2 vw = MeasureTextEx(h->font_value, b, fs_value, 0.5f);
         Vector2 uw = MeasureTextEx(h->font_label, "m/s", fs_unit, 0.5f);
-        if (x + vw.x + 3 + uw.x < sep3_x - 4 * s)
+        if (x + vw.x + 3 + uw.x < item_x0 + 7 * item_step - 4 * s)
             DrawTextEx(h->font_label, "m/s", (Vector2){x + vw.x + 3, (float)(value_y + unit_y_off)}, fs_unit, 0.5f, dim_color);
+    }
+
+    // THR: telemetry command percentage, with valid zero distinct from missing.
+    {
+        char b[16];
+        float x = energy_start + energy_step * 4;
+        DrawTextEx(h->font_label, "THR", (Vector2){x, (float)label_y}, fs_label, 0.5f, label_color);
+        if (v->throttle_valid) snprintf(b, sizeof(b), "%.0f%%", v->throttle_pct);
+        else snprintf(b, sizeof(b), "--");
+        DrawTextEx(h->font_value, b, (Vector2){x, (float)value_y}, fs_value, 0.5f,
+                   v->throttle_valid ? value_color : dim_color);
     }
 
     // Timer (sim time from HIL_STATE_QUATERNION)
