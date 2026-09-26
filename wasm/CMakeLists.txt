@@ -132,7 +132,7 @@ target_link_options(hawkeye PRIVATE
     "-sMODULARIZE=1"
     "-sEXPORT_ES6=1"
     "-sEXPORT_NAME=createHawkeye"
-    "-sEXPORTED_FUNCTIONS=['_hawkeye_init','_hawkeye_load_ulog_bytes','_hawkeye_begin_multi_load','_hawkeye_stage_ulog','_hawkeye_finalize_multi_load','_hawkeye_get_conflict_flags','_hawkeye_add_theme_bytes','_hawkeye_resize','_hawkeye_destroy','_hawkeye_set_playing','_hawkeye_seek','_hawkeye_get_duration','_hawkeye_get_position','_malloc','_free']"
+    "-sEXPORTED_FUNCTIONS=['_hawkeye_init','_hawkeye_load_ulog_bytes','_hawkeye_begin_multi_load','_hawkeye_stage_ulog','_hawkeye_finalize_multi_load','_hawkeye_get_conflict_flags','_hawkeye_add_theme_bytes','_hawkeye_resize','_hawkeye_destroy','_hawkeye_set_playing','_hawkeye_get_playing','_hawkeye_seek','_hawkeye_get_duration','_hawkeye_get_position','_malloc','_free']"
     "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8']"
     "-sINITIAL_MEMORY=16MB"
     "-sALLOW_MEMORY_GROWTH=1"

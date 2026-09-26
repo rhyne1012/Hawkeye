@@ -1,0 +1,32 @@
+name: Local replay
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['local/**', 'wasm/**', 'src/wasm/**', 'src/ulog_replay_apply.*', '.github/workflows/local-replay.yml']
+  push:
+    branches: [main]
+    paths: ['local/**', 'wasm/**', 'src/wasm/**', 'src/ulog_replay_apply.*', '.github/workflows/local-replay.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - name: Test loopback launcher
+        working-directory: local/launcher
+        run: go test ./...
+      - name: Test WASM seek state
+        run: bash local/scripts/test_core.sh
