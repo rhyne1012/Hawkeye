@@ -531,10 +531,7 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
         // Wait for HOME_POSITION so we get the correct ground altitude.
         // Fall back to current altitude after ~1 second (20 HIL updates at 22Hz).
         v->origin_wait_count++;
-        if (home && home->valid && (lat != 0.0 || lon != 0.0)) {
-            // Latch the origin to HOME (the takeoff/ground point), not the current
-            // sample. Otherwise reconnecting to a live session mid-flight latches the
-            // airborne position as the origin and the vehicle renders on the floor.
+        if (home && home->valid && (home->lat != 0 || home->lon != 0)) {
             v->lat0 = home->lat * 1e-7 * (M_PI / 180.0);
             v->lon0 = home->lon * 1e-7 * (M_PI / 180.0);
             v->alt0 = home->alt * 1e-3;
@@ -600,10 +597,15 @@ void vehicle_update(vehicle_t *v, const hil_state_t *state, const home_position_
     v->ground_speed = sqrtf((float)state->vx * state->vx +
                             (float)state->vy * state->vy) * 0.01f;
     v->vertical_speed = -state->vz * 0.01f;
-    v->airspeed = state->ind_airspeed * 0.01f;
+    v->airspeed_is_cas = state->calibrated_airspeed_present;
+    v->airspeed = v->airspeed_is_cas ? state->calibrated_airspeed
+                                    : state->ind_airspeed * 0.01f;
+    v->airspeed_valid = v->airspeed_is_cas ? state->calibrated_airspeed_valid
+                                         : state->ind_airspeed > 0;
+    v->throttle_pct = state->throttle_pct;
+    v->throttle_valid = state->throttle_valid;
     v->altitude_rel = (float)(state->relative_alt_valid
-        ? state->relative_alt * 1e-3
-        : alt - v->alt0);
+        ? state->relative_alt * 1e-3 : alt - v->alt0);
 
     // Adaptive trail sampling: record a point when direction changes (tight turns
     // get dense coverage) or after a max distance on straight runs (so they don't

@@ -17,6 +17,7 @@ static void sparse_seek(void) {
         .start_timestamp_us=1000000,.end_timestamp_us=21000000};
     wasm_replay_ctx_t c = {.timeline=&tl,.ref_set=true,.ref_lat=24,.ref_lon=121,
         .home={.lat=240000000,.lon=1210000000,.valid=true}};
+    c.initial_home = c.home;
     wasm_replay_seek(&c,15);
     assert(c.current_nav_state==4 && c.state.ind_airspeed==800);
     wasm_replay_seek(&c,5);
@@ -53,7 +54,7 @@ static void real_log(const char *path) {
     for(int k=0;k<10;k++) {
         float target=(float)(duration*fractions[k]);
         wasm_replay_seek(&c,target);
-        uint64_t ts=tl->start_timestamp_us+(uint64_t)(fmin(target,duration)*1e6);
+        uint64_t ts=tl->start_timestamp_us+(uint64_t)llround(fmin(target,duration)*1e6);
         int ai=-1,vi=-1,si=-1;
         for(int i=0;i<tl->att_count;i++)if(tl->att[i].timestamp_us<=ts)ai=i;
         for(int i=0;i<tl->vstatus_count;i++)if(tl->vstatus[i].timestamp_us<=ts)vi=i;
@@ -61,9 +62,21 @@ static void real_log(const char *path) {
         if(ai>=0)for(int i=0;i<4;i++)assert(fabs(c.state.quaternion[i]-tl->att[ai].q[i])<1e-6);
         assert(c.current_nav_state==(vi>=0?tl->vstatus[vi].nav_state:0xff));
         assert(c.state.ind_airspeed==(si>=0?tl->aspd[si].ias_cms:0));
+        bool present=si>=0 && tl->aspd[si].cas_present;
+        bool valid=present && isfinite(tl->aspd[si].cas_m_s) && tl->aspd[si].cas_m_s>=0;
+        assert(c.state.calibrated_airspeed_present==present);
+        assert(c.state.calibrated_airspeed_valid==valid);
+        if(valid)assert(c.state.calibrated_airspeed==tl->aspd[si].cas_m_s);
         assert(fabs(c.wall_accum-fmin(target,duration))<1e-5);
     }
     printf("real ULog: %.3f s, %d attitude / %d local position / %d global position events; 10 out-of-order seeks PASS\n",duration,tl->att_count,tl->lpos_count,tl->gpos_count);
+    int cas_present=0,cas_valid=0;
+    for(int i=0;i<tl->aspd_count;i++) {
+        cas_present+=tl->aspd[i].cas_present;
+        cas_valid+=tl->aspd[i].cas_present && isfinite(tl->aspd[i].cas_m_s) && tl->aspd[i].cas_m_s>=0;
+    }
+    printf("telemetry: %d airspeed records, %d CAS-present, %d valid CAS, %d throttle records\n",
+           tl->aspd_count,cas_present,cas_valid,tl->throttle_count);
     wasm_replay_close(&c);
 }
 int main(int argc,char **argv){sparse_seek();if(argc==2)real_log(argv[1]);return 0;}

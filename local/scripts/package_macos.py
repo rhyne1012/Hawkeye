@@ -36,7 +36,7 @@ for name in ['LICENSE', 'NOTICE.md', 'FORKS.md']:
 shutil.copyfile(root / 'fonts/OFL.txt', resources / 'FONT_LICENSE.txt')
 subprocess.run([a.go, 'build', '-trimpath', '-ldflags=-s -w', '-o', str(mac/'FlightReplayLocal'), '.'], cwd=root/'local/launcher', check=True)
 with (app/'Contents/Info.plist').open('wb') as f:
-    plistlib.dump({'CFBundleName':'Flight Replay Local','CFBundleDisplayName':'Flight Replay Local','CFBundleIdentifier':'io.github.rhyne1012.flight-replay-local','CFBundleExecutable':'FlightReplayLocal','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'1','LSMinimumSystemVersion':'12.0','LSUIElement':True,'NSHighResolutionCapable':True},f)
+    plistlib.dump({'CFBundleName':'Flight Replay Local','CFBundleDisplayName':'Flight Replay Local','CFBundleIdentifier':'io.github.rhyne1012.flight-replay-local','CFBundleExecutable':'FlightReplayLocal','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.2.0','CFBundleVersion':'2','LSMinimumSystemVersion':'12.0','LSUIElement':True,'NSHighResolutionCapable':True},f)
 # File Provider can add FinderInfo to newly created .app directories. Strip
 # only signing-incompatible metadata, and only inside this generated bundle.
 for item in [app, *app.rglob('*')]:

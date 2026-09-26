@@ -65,6 +65,7 @@ DEFINE_FIND(ulog_att_event_t,        att)
 DEFINE_FIND(ulog_lpos_event_t,       lpos)
 DEFINE_FIND(ulog_gpos_event_t,       gpos)
 DEFINE_FIND(ulog_aspd_event_t,       aspd)
+DEFINE_FIND(ulog_throttle_event_t,   throttle)
 DEFINE_FIND(ulog_vstatus_event_t,    vstatus)
 DEFINE_FIND(ulog_home_event_t,       home)
 DEFINE_FIND(ulog_statustext_event_t, statustext)
@@ -83,6 +84,7 @@ void ulog_timeline_free(ulog_timeline_t *tl) {
     free(tl->att);         tl->att = NULL;         tl->att_count = 0;         tl->att_cap = 0;
     free(tl->lpos);        tl->lpos = NULL;        tl->lpos_count = 0;        tl->lpos_cap = 0;
     free(tl->gpos);        tl->gpos = NULL;        tl->gpos_count = 0;        tl->gpos_cap = 0;
+    free(tl->throttle); tl->throttle = NULL; tl->throttle_count = tl->throttle_cap = 0;
     free(tl->aspd);        tl->aspd = NULL;        tl->aspd_count = 0;        tl->aspd_cap = 0;
     free(tl->vstatus);     tl->vstatus = NULL;     tl->vstatus_count = 0;     tl->vstatus_cap = 0;
     free(tl->home);        tl->home = NULL;        tl->home_count = 0;        tl->home_cap = 0;
@@ -95,6 +97,7 @@ void ulog_timeline_shrink_to_fit(ulog_timeline_t *tl) {
     shrink_array((void **)&tl->att,        &tl->att_cap,        tl->att_count,        sizeof(ulog_att_event_t));
     shrink_array((void **)&tl->lpos,       &tl->lpos_cap,       tl->lpos_count,       sizeof(ulog_lpos_event_t));
     shrink_array((void **)&tl->gpos,       &tl->gpos_cap,       tl->gpos_count,       sizeof(ulog_gpos_event_t));
+    shrink_array((void **)&tl->throttle, &tl->throttle_cap, tl->throttle_count, sizeof(ulog_throttle_event_t));
     shrink_array((void **)&tl->aspd,       &tl->aspd_cap,       tl->aspd_count,       sizeof(ulog_aspd_event_t));
     shrink_array((void **)&tl->vstatus,    &tl->vstatus_cap,    tl->vstatus_count,    sizeof(ulog_vstatus_event_t));
     shrink_array((void **)&tl->home,       &tl->home_cap,       tl->home_count,       sizeof(ulog_home_event_t));
@@ -118,6 +121,7 @@ DEFINE_APPEND(ulog_att_event_t,        att)
 DEFINE_APPEND(ulog_lpos_event_t,       lpos)
 DEFINE_APPEND(ulog_gpos_event_t,       gpos)
 DEFINE_APPEND(ulog_aspd_event_t,       aspd)
+DEFINE_APPEND(ulog_throttle_event_t,   throttle)
 DEFINE_APPEND(ulog_vstatus_event_t,    vstatus)
 DEFINE_APPEND(ulog_home_event_t,       home)
 DEFINE_APPEND(ulog_statustext_event_t, statustext)

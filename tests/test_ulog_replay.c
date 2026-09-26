@@ -77,7 +77,7 @@ static void test_gps_path(void) {
     assert(ctx);
     assert(ulog_replay_init(ctx, FW_LOG) == 0);
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 16000; i++) {
         ulog_replay_advance(ctx, 0.05f, 1.0f, false, true);
         if (ctx->has_global_pos && ctx->state.valid) break;
     }
@@ -114,7 +114,7 @@ static void test_home_valid(void) {
     assert(ctx);
     assert(ulog_replay_init(ctx, FW_LOG) == 0);
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 16000; i++) {
         ulog_replay_advance(ctx, 0.05f, 1.0f, false, true);
         if (ctx->home.valid) break;
     }
@@ -211,7 +211,7 @@ static void test_velocity(void) {
     assert(ctx);
     assert(ulog_replay_init(ctx, FW_LOG) == 0);
 
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 16000; i++) {
         ulog_replay_advance(ctx, 0.05f, 1.0f, false, true);
         if (ctx->state.valid) break;
     }

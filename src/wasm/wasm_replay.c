@@ -69,6 +69,10 @@ static void advance_cursors_to(wasm_replay_ctx_t *ctx, uint64_t target_us) {
            tl->aspd[ctx->aspd_cursor].timestamp_us <= target_us) {
         ulog_apply_aspd(ctx, &tl->aspd[ctx->aspd_cursor++]);
     }
+    while (ctx->throttle_cursor < tl->throttle_count &&
+           tl->throttle[ctx->throttle_cursor].timestamp_us <= target_us)
+        ulog_apply_throttle(ctx, &tl->throttle[ctx->throttle_cursor++]);
+    ulog_expire_throttle(ctx, target_us);
     while (ctx->vstatus_cursor < tl->vstatus_count &&
            tl->vstatus[ctx->vstatus_cursor].timestamp_us <= target_us) {
         ulog_apply_vstatus(ctx, &tl->vstatus[ctx->vstatus_cursor++]);
@@ -130,7 +134,9 @@ static bool any_cursor_remaining(const wasm_replay_ctx_t *ctx) {
            ctx->gpos_cursor    < tl->gpos_count    ||
            ctx->aspd_cursor    < tl->aspd_count    ||
            ctx->vstatus_cursor < tl->vstatus_count ||
-           ctx->home_cursor    < tl->home_count;
+           ctx->home_cursor    < tl->home_count ||
+           ctx->throttle_cursor < tl->throttle_count ||
+           ctx->statustext_cursor < tl->statustext_count;
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +171,8 @@ int wasm_replay_init_from_bytes(wasm_replay_ctx_t *ctx,
            sizeof(ctx->mode_changes[0]) * (size_t)result.mode_change_count);
     ctx->home               = result.home;
     ctx->home_from_topic    = result.home_from_topic != 0;
+    ctx->initial_home = ctx->home;
+    ctx->initial_home_from_topic = ctx->home_from_topic;
     ctx->home_rejected      = result.home_rejected != 0;
     ctx->ref_lat            = result.ref_lat_deg;
     ctx->ref_lon            = result.ref_lon_deg;
@@ -194,7 +202,8 @@ bool wasm_replay_advance(wasm_replay_ctx_t *ctx, float dt, float speed,
 
     // Convert accumulated wall-clock time to a target log-relative timestamp,
     // then to an absolute log timestamp.
-    ctx->wall_accum += (double)(dt * speed);
+    if (isfinite(dt) && isfinite(speed) && dt > 0 && speed > 0)
+        ctx->wall_accum += (double)dt * speed;
     double log_rel_s = ctx->wall_accum - ctx->time_offset_s;
     uint64_t dur_us = tl->end_timestamp_us - tl->start_timestamp_us;
 
@@ -202,20 +211,11 @@ bool wasm_replay_advance(wasm_replay_ctx_t *ctx, float dt, float speed,
         return true;  // still waiting for our aligned start
     }
 
-    uint64_t rel_us = (uint64_t)(log_rel_s * 1e6);
+    uint64_t rel_us = (uint64_t)llround(log_rel_s * 1e6);
 
     if (rel_us >= dur_us) {
         if (looping) {
-            ctx->wall_accum = ctx->time_offset_s;
-            ctx->att_cursor = ctx->lpos_cursor = ctx->gpos_cursor = 0;
-            ctx->aspd_cursor = ctx->vstatus_cursor = ctx->home_cursor = 0;
-            ctx->statustext_cursor = 0;
-            ctx->has_global_pos = false;
-            ctx->first_pos_set  = false;
-            ctx->prev_gpos_usec = 0;
-            ctx->last_pos_usec  = 0;
-            ctx->last_vx = ctx->last_vy = ctx->last_vz = 0.0f;
-            ctx->gpos_vx = ctx->gpos_vy = ctx->gpos_vz = 0.0f;
+            wasm_replay_seek(ctx, 0);
             return true;
         }
         rel_us = dur_us;
@@ -235,12 +235,15 @@ void wasm_replay_seek(wasm_replay_ctx_t *ctx, float target_s) {
     if (!isfinite(target_s)) return;
     double duration = (double)(tl->end_timestamp_us - tl->start_timestamp_us) / 1e6;
     double target = fmax(0.0, fmin((double)target_s, duration));
-    uint64_t target_us = tl->start_timestamp_us + (uint64_t)(target * 1e6);
+    uint64_t target_us = tl->start_timestamp_us + (uint64_t)llround(target * 1e6);
 
     // Rebuild from the latest sample of each topic, independent of the old
     // playhead. A one-second forward scan alone leaves sparse status/airspeed
     // topics (and data before their first sample) stuck in the future.
-    home_position_t saved_home = ctx->home;
+    home_position_t saved_home = ctx->initial_home;
+    ctx->home = saved_home;
+    ctx->home_from_topic = ctx->initial_home_from_topic;
+    ctx->throttle_sample_usec = 0;
     memset(&ctx->state, 0, sizeof(ctx->state));
     ctx->state.quaternion[0] = 1.0f;
     ctx->current_nav_state = 0xff;
@@ -254,6 +257,7 @@ void wasm_replay_seek(wasm_replay_ctx_t *ctx, float target_s) {
     int att_idx        = ulog_timeline_find_att_at       (tl, target_us);
     int lpos_idx       = ulog_timeline_find_lpos_at      (tl, target_us);
     int gpos_idx       = ulog_timeline_find_gpos_at      (tl, target_us);
+    int throttle_idx   = ulog_timeline_find_throttle_at(tl, target_us);
     int aspd_idx       = ulog_timeline_find_aspd_at      (tl, target_us);
     int vstatus_idx    = ulog_timeline_find_vstatus_at   (tl, target_us);
     int home_idx       = ulog_timeline_find_home_at      (tl, target_us);
@@ -268,6 +272,8 @@ void wasm_replay_seek(wasm_replay_ctx_t *ctx, float target_s) {
     if (saved_home.valid) ctx->home = saved_home;
     if (att_idx >= 0) ulog_apply_attitude(ctx, &tl->att[att_idx]);
     if (aspd_idx >= 0) ulog_apply_aspd(ctx, &tl->aspd[aspd_idx]);
+    if (throttle_idx >= 0) ulog_apply_throttle(ctx, &tl->throttle[throttle_idx]);
+    ulog_expire_throttle(ctx, target_us);
     if (vstatus_idx >= 0) ulog_apply_vstatus(ctx, &tl->vstatus[vstatus_idx]);
     if (home_idx >= 0) ulog_apply_home(ctx, &tl->home[home_idx]);
     int text_start = statustext_idx - STATUSTEXT_RING_SIZE + 1;
@@ -278,6 +284,7 @@ void wasm_replay_seek(wasm_replay_ctx_t *ctx, float target_s) {
     ctx->att_cursor        = att_idx        < 0 ? 0 : att_idx + 1;
     ctx->lpos_cursor       = lpos_idx       < 0 ? 0 : lpos_idx + 1;
     ctx->gpos_cursor       = gpos_idx       < 0 ? 0 : gpos_idx + 1;
+    ctx->throttle_cursor   = throttle_idx < 0 ? 0 : throttle_idx + 1;
     ctx->aspd_cursor       = aspd_idx       < 0 ? 0 : aspd_idx + 1;
     ctx->vstatus_cursor    = vstatus_idx    < 0 ? 0 : vstatus_idx + 1;
     ctx->home_cursor       = home_idx       < 0 ? 0 : home_idx + 1;

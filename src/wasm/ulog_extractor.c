@@ -10,6 +10,8 @@
 // file bytes can be freed by the caller.
 
 #include "ulog_extractor.h"
+#include "ulog_replay_apply.h"
+#include <math.h>
 #include "ulog_timeline.h"
 
 #include <stdio.h>
@@ -82,11 +84,12 @@ typedef struct {
     int lpos_ref_lat_offset, lpos_ref_lon_offset, lpos_ref_alt_offset;
     int lpos_xy_global_offset, lpos_z_global_offset;
 
-    int aspd_ias_offset, aspd_tas_offset;
+    int aspd_ias_offset, aspd_tas_offset, aspd_cas_offset;
+    int throttle_pct_offset, throttle_valid_offset, throttle_sample_offset;
 
     int vstatus_type_offset, vstatus_is_vtol_offset, vstatus_nav_state_offset;
 
-    int home_lat_offset, home_lon_offset, home_alt_offset, home_valid_hpos_offset;
+    int home_lat_offset, home_lon_offset, home_alt_offset, home_valid_hpos_offset, home_valid_alt_offset;
 } field_cache_t;
 
 // ---------------------------------------------------------------------------
@@ -112,6 +115,7 @@ typedef struct {
     int sub_global_pos;
     int sub_local_pos;
     int sub_airspeed;
+    int sub_throttle;
     int sub_vehicle_status;
     int sub_home_pos;
 
@@ -120,6 +124,7 @@ typedef struct {
     uint16_t gpos_msg_id;
     uint16_t lpos_msg_id;
     uint16_t aspd_msg_id;
+    uint16_t throttle_msg_id;
     uint16_t vstatus_msg_id;
     uint16_t home_msg_id;
 
@@ -336,6 +341,8 @@ static void resolve_subs_and_cache(walker_t *w) {
     w->sub_attitude       = find_subscription(w, "vehicle_attitude");
     w->sub_global_pos     = find_subscription(w, "vehicle_global_position");
     w->sub_local_pos      = find_subscription(w, "vehicle_local_position");
+    w->sub_throttle = find_subscription(w, "replay_throttle");
+    w->throttle_msg_id = w->sub_throttle >= 0 ? w->subs[w->sub_throttle].msg_id : 0xFFFF;
     w->sub_airspeed       = find_subscription(w, "airspeed_validated");
     w->sub_vehicle_status = find_subscription(w, "vehicle_status");
     w->sub_home_pos       = find_subscription(w, "home_position");
@@ -378,6 +385,14 @@ static void resolve_subs_and_cache(walker_t *w) {
         const format_t *f = &w->formats[w->subs[w->sub_airspeed].format_idx];
         w->cache.aspd_ias_offset = find_field(f, "indicated_airspeed_m_s");
         w->cache.aspd_tas_offset = find_field(f, "true_airspeed_m_s");
+        w->cache.aspd_cas_offset = find_field(f, "calibrated_airspeed_m_s");
+    }
+
+    if (w->sub_throttle >= 0) {
+        const format_t *f = &w->formats[w->subs[w->sub_throttle].format_idx];
+        w->cache.throttle_pct_offset = find_field(f, "throttle_pct");
+        w->cache.throttle_valid_offset = find_field(f, "valid");
+        w->cache.throttle_sample_offset = find_field(f, "timestamp_sample");
     }
 
     if (w->sub_vehicle_status >= 0) {
@@ -392,6 +407,7 @@ static void resolve_subs_and_cache(walker_t *w) {
         w->cache.home_lat_offset        = find_field(f, "lat");
         w->cache.home_lon_offset        = find_field(f, "lon");
         w->cache.home_alt_offset        = find_field(f, "alt");
+        w->cache.home_valid_alt_offset = find_field(f, "valid_alt");
         w->cache.home_valid_hpos_offset = find_field(f, "valid_hpos");
     }
 }
@@ -494,15 +510,29 @@ static void extract_lpos(walker_t *w, uint64_t ts_us, const uint8_t *payload) {
 }
 
 static void extract_aspd(walker_t *w, uint64_t ts_us, const uint8_t *payload) {
-    if (w->cache.aspd_ias_offset < 0 || w->cache.aspd_tas_offset < 0) return;
-    float ias = read_float_at(payload, w->cache.aspd_ias_offset);
-    float tas = read_float_at(payload, w->cache.aspd_tas_offset);
-    ulog_aspd_event_t ev;
+    float ias = w->cache.aspd_ias_offset >= 0
+        ? read_float_at(payload, w->cache.aspd_ias_offset) : NAN;
+    float tas = w->cache.aspd_tas_offset >= 0
+        ? read_float_at(payload, w->cache.aspd_tas_offset) : NAN;
+    ulog_aspd_event_t ev = {0};
     ev.timestamp_us = ts_us;
-    ev.ias_cms = (uint16_t)(ias * 100.0f);
-    ev.tas_cms = (uint16_t)(tas * 100.0f);
-    ev._pad = 0;
+    ev.ias_cms = isfinite(ias) && ias >= 0 && ias <= 655.35f ? (uint16_t)(ias*100) : 0;
+    ev.tas_cms = isfinite(tas) && tas >= 0 && tas <= 655.35f ? (uint16_t)(tas*100) : 0;
+    ev.cas_present = w->cache.aspd_cas_offset >= 0;
+    ev.cas_m_s = ev.cas_present ? read_float_at(payload, w->cache.aspd_cas_offset) : NAN;
     ulog_timeline_append_aspd(w->out->timeline, &ev);
+}
+
+static void extract_throttle(walker_t *w, uint64_t ts_us, const uint8_t *payload) {
+    ulog_throttle_event_t ev = {0};
+    ev.timestamp_us = ev.sample_timestamp_us = ts_us;
+    if (w->cache.throttle_sample_offset >= 0)
+        memcpy(&ev.sample_timestamp_us, payload + w->cache.throttle_sample_offset, 8);
+    ev.pct = w->cache.throttle_pct_offset >= 0
+        ? read_float_at(payload, w->cache.throttle_pct_offset) : NAN;
+    ev.valid = w->cache.throttle_valid_offset >= 0 &&
+        read_uint8_at(payload, w->cache.throttle_valid_offset);
+    ulog_timeline_append_throttle(w->out->timeline, &ev);
 }
 
 static void extract_vstatus(walker_t *w, uint64_t ts_us, const uint8_t *payload) {
@@ -551,7 +581,8 @@ static void extract_vstatus(walker_t *w, uint64_t ts_us, const uint8_t *payload)
 }
 
 static void extract_home(walker_t *w, uint64_t ts_us, const uint8_t *payload) {
-    if (w->cache.home_lat_offset < 0) return;
+    if (w->cache.home_lat_offset < 0 || w->cache.home_lon_offset < 0 ||
+        w->cache.home_alt_offset < 0) return;
 
     uint8_t hpos_valid = 1;
     if (w->cache.home_valid_hpos_offset >= 0)
@@ -567,11 +598,14 @@ static void extract_home(walker_t *w, uint64_t ts_us, const uint8_t *payload) {
     ev.lon_deg = lon;
     ev.alt_m = alt;
     ev.valid_hpos = hpos_valid;
+    ev.valid_alt = w->cache.home_valid_alt_offset < 0 ||
+        read_uint8_at(payload, w->cache.home_valid_alt_offset);
+    if (!ulog_home_event_valid(&ev)) return;
     memset(ev._pad, 0, sizeof(ev._pad));
     ulog_timeline_append_home(w->out->timeline, &ev);
 
     // Pre-scan home resolution (Tier 1: authoritative home_position topic)
-    if (!w->got_home && hpos_valid && (lat != 0.0 || lon != 0.0)) {
+    if (!w->out->home_from_topic) {
         w->out->home.lat = (int32_t)(lat * 1e7);
         w->out->home.lon = (int32_t)(lon * 1e7);
         w->out->home.alt = (int32_t)(alt * 1000.0f);
@@ -601,6 +635,7 @@ static void dispatch_data(walker_t *w, uint16_t msg_id, uint64_t ts_us, const ui
     if (msg_id == w->att_msg_id)          extract_attitude(w, ts_us, payload);
     else if (msg_id == w->lpos_msg_id)    extract_lpos(w, ts_us, payload);
     else if (msg_id == w->gpos_msg_id)    extract_gpos(w, ts_us, payload);
+    else if (msg_id == w->throttle_msg_id) extract_throttle(w, ts_us, payload);
     else if (msg_id == w->aspd_msg_id)    extract_aspd(w, ts_us, payload);
     else if (msg_id == w->vstatus_msg_id) extract_vstatus(w, ts_us, payload);
     else if (msg_id == w->home_msg_id)    extract_home(w, ts_us, payload);
@@ -732,7 +767,8 @@ int ulog_extract(const uint8_t *buf, size_t len, ulog_extract_result_t *out) {
                 w->first_seen = 1;
                 out->timeline->start_timestamp_us = ts_us;
             }
-            out->timeline->end_timestamp_us = ts_us;
+            if (ts_us > out->timeline->end_timestamp_us)
+                out->timeline->end_timestamp_us = ts_us;
 
             // payload in dispatch_data points at w->read_buf + 2, matching native's
             // ulog_data_msg_t.data semantics (starts with timestamp).
@@ -747,6 +783,8 @@ int ulog_extract(const uint8_t *buf, size_t len, ulog_extract_result_t *out) {
             const uint8_t *text = w->read_buf + 9;
             int text_len = msg_size - 9;
             extract_statustext(w, ts_us, severity, text, text_len);
+            if (ts_us > out->timeline->end_timestamp_us)
+                out->timeline->end_timestamp_us = ts_us;
             continue;
         }
 

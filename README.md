@@ -1,3 +1,17 @@
+# Rhyne Flight Replay — research fork
+
+Replay additions: THR %, separately labeled CAS, preserved Home altitude, and
+timestamp-correct sparse playback. These features are available in native replay
+and the local browser App's WASM core. See [telemetry rules](REPLAY_TELEMETRY.md)
+and [macOS App usage and packaging](local/README.md).
+
+This independent build integrates the replay work with the current Hawkeye main
+branch. It is not affiliated with, authorized by, sponsored by, or approved by
+Hawkeye, PX4, or the Dronecode Foundation. The upstream installation commands
+below install the official app; build this fork for these additions.
+
+---
+
 # Hawkeye
 
 [![Release](https://img.shields.io/github/v/release/PX4/Hawkeye)](https://github.com/PX4/Hawkeye/releases/latest)

@@ -63,11 +63,19 @@ static void decode_aspd(const ulog_data_msg_t *dmsg,
                          const ulog_field_cache_t *cache,
                          ulog_aspd_event_t *ev) {
     ev->timestamp_us = dmsg->timestamp;
-    float ias = ulog_parser_get_float(dmsg, cache->aspd_ias_offset);
-    float tas = ulog_parser_get_float(dmsg, cache->aspd_tas_offset);
-    ev->ias_cms = (uint16_t)(ias * 100.0f);
-    ev->tas_cms = (uint16_t)(tas * 100.0f);
-    ev->_pad    = 0;
+    float ias = cache->aspd_ias_offset >= 0
+        ? ulog_parser_get_float(dmsg, cache->aspd_ias_offset) : NAN;
+    float tas = cache->aspd_tas_offset >= 0
+        ? ulog_parser_get_float(dmsg, cache->aspd_tas_offset) : NAN;
+    // Validate before unsigned conversion (negative/NaN must not wrap).
+    ev->ias_cms = (isfinite(ias) && ias >= 0.0f && ias <= 655.35f)
+        ? (uint16_t)(ias * 100.0f) : 0;
+    ev->tas_cms = (isfinite(tas) && tas >= 0.0f && tas <= 655.35f)
+        ? (uint16_t)(tas * 100.0f) : 0;
+    ev->cas_present = cache->aspd_cas_offset >= 0;
+    ev->cas_m_s = ev->cas_present
+        ? ulog_parser_get_float(dmsg, cache->aspd_cas_offset) : NAN;
+    memset(ev->_pad, 0, sizeof(ev->_pad));
 }
 
 static void decode_vstatus(const ulog_data_msg_t *dmsg,
@@ -103,13 +111,15 @@ static void decode_home(const ulog_data_msg_t *dmsg,
                          ulog_home_event_t *ev) {
     ev->timestamp_us = dmsg->timestamp;
     ev->lat_deg = (cache->home_lat_offset >= 0)
-        ? ulog_parser_get_double(dmsg, cache->home_lat_offset) : 0.0;
+        ? ulog_parser_get_double(dmsg, cache->home_lat_offset) : NAN;
     ev->lon_deg = (cache->home_lon_offset >= 0)
-        ? ulog_parser_get_double(dmsg, cache->home_lon_offset) : 0.0;
+        ? ulog_parser_get_double(dmsg, cache->home_lon_offset) : NAN;
     ev->alt_m = (cache->home_alt_offset >= 0)
-        ? ulog_parser_get_float(dmsg, cache->home_alt_offset) : 0.0f;
+        ? ulog_parser_get_float(dmsg, cache->home_alt_offset) : NAN;
+    ev->valid_alt = cache->home_valid_alt_offset < 0 ||
+        ulog_parser_get_uint8(dmsg, cache->home_valid_alt_offset);
     ev->valid_hpos = (cache->home_valid_hpos_offset >= 0)
-        ? ulog_parser_get_uint8(dmsg, cache->home_valid_hpos_offset) : 0;
+        ? ulog_parser_get_uint8(dmsg, cache->home_valid_hpos_offset) : 1;
     memset(ev->_pad, 0, sizeof(ev->_pad));
 }
 
@@ -188,6 +198,18 @@ static void process_message(ulog_replay_ctx_t *ctx, const ulog_data_msg_t *dmsg)
         decode_aspd(dmsg, &ctx->cache, &ev);
         ulog_apply_aspd(ctx, &ev);
     }
+    else if (ctx->sub_throttle >= 0 && sub_idx == ctx->sub_throttle) {
+        ulog_throttle_event_t ev = {0};
+        ev.timestamp_us = dmsg->timestamp;
+        ev.pct = ctx->cache.throttle_pct_offset >= 0
+            ? ulog_parser_get_float(dmsg, ctx->cache.throttle_pct_offset) : NAN;
+        ev.valid = ctx->cache.throttle_valid_offset >= 0 &&
+            ulog_parser_get_uint8(dmsg, ctx->cache.throttle_valid_offset);
+        ev.sample_timestamp_us = ctx->cache.throttle_sample_offset >= 0
+            ? ulog_parser_get_uint64(dmsg, ctx->cache.throttle_sample_offset)
+            : dmsg->timestamp;
+        ulog_apply_throttle(ctx, &ev);
+    }
     else if (ctx->sub_vehicle_status >= 0 && sub_idx == ctx->sub_vehicle_status) {
         ulog_vstatus_event_t ev;
         decode_vstatus(dmsg, &ctx->cache, &ev);
@@ -218,6 +240,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
     ctx->sub_airspeed = ulog_parser_find_subscription(&ctx->parser, "airspeed_validated");
     ctx->sub_vehicle_status = ulog_parser_find_subscription(&ctx->parser, "vehicle_status");
     ctx->sub_home_pos = ulog_parser_find_subscription(&ctx->parser, "home_position");
+    ctx->sub_throttle = ulog_parser_find_subscription(&ctx->parser, "replay_throttle");
 
     // Required topics
     if (ctx->sub_attitude < 0) {
@@ -265,6 +288,13 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         int aspd_fmt = ctx->parser.subs[ctx->sub_airspeed].format_idx;
         ctx->cache.aspd_ias_offset = ulog_parser_find_field(&ctx->parser, aspd_fmt, "indicated_airspeed_m_s");
         ctx->cache.aspd_tas_offset = ulog_parser_find_field(&ctx->parser, aspd_fmt, "true_airspeed_m_s");
+        ctx->cache.aspd_cas_offset = ulog_parser_find_field(&ctx->parser, aspd_fmt, "calibrated_airspeed_m_s");
+    }
+    if (ctx->sub_throttle >= 0) {
+        int fmt = ctx->parser.subs[ctx->sub_throttle].format_idx;
+        ctx->cache.throttle_pct_offset = ulog_parser_find_field(&ctx->parser, fmt, "throttle_pct");
+        ctx->cache.throttle_valid_offset = ulog_parser_find_field(&ctx->parser, fmt, "valid");
+        ctx->cache.throttle_sample_offset = ulog_parser_find_field(&ctx->parser, fmt, "timestamp_sample");
     }
 
     // Optional: vehicle_status
@@ -282,6 +312,7 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         ctx->cache.home_lon_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "lon");
         ctx->cache.home_alt_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "alt");
         ctx->cache.home_valid_hpos_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "valid_hpos");
+        ctx->cache.home_valid_alt_offset = ulog_parser_find_field(&ctx->parser, hp_fmt, "valid_alt");
     }
 
     // Pre-scan for vehicle_type, flight mode transitions, and home position
@@ -347,18 +378,13 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
             // Require valid_hpos. After the scan, we also verify that GPOS data
             // actually exists — subscription alone isn't enough (PX4 subscribes
             // even when EKF never produces data).
-            if (!got_home && scan_msg.msg_id == home_msg_id) {
-                bool hpos_valid = true;  // default true for older logs without the field
-                if (ctx->cache.home_valid_hpos_offset >= 0)
-                    hpos_valid = ulog_parser_get_uint8(&scan_msg, ctx->cache.home_valid_hpos_offset) != 0;
-                double lat = ulog_parser_get_double(&scan_msg, ctx->cache.home_lat_offset);
-                double lon = ulog_parser_get_double(&scan_msg, ctx->cache.home_lon_offset);
-                float alt = ulog_parser_get_float(&scan_msg, ctx->cache.home_alt_offset);
-                if (hpos_valid && (lat != 0.0 || lon != 0.0)) {
-                    ctx->home.lat = (int32_t)(lat * 1e7);
-                    ctx->home.lon = (int32_t)(lon * 1e7);
-                    ctx->home.alt = (int32_t)(alt * 1000.0f);
-                    ctx->home.valid = true;
+            if (!ctx->home_from_topic && scan_msg.msg_id == home_msg_id) {
+                ulog_home_event_t ev;
+                decode_home(&scan_msg, &ctx->cache, &ev);
+                if (ulog_home_event_valid(&ev)) {
+                    ctx->home = (home_position_t){
+                        .lat=(int32_t)(ev.lat_deg*1e7), .lon=(int32_t)(ev.lon_deg*1e7),
+                        .alt=(int32_t)(ev.alt_m*1000.0f), .valid=true};
                     ctx->home_from_topic = true;
                     got_home = true;
                 }
@@ -445,6 +471,9 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
         ulog_parser_rewind(&ctx->parser);
     }
 
+    ctx->initial_home = ctx->home;
+    ctx->initial_home_from_topic = ctx->home_from_topic;
+
     // Enable STATUSTEXT logging message capture (after pre-scan so the ring
     // only fills with messages encountered during actual playback, not during
     // the full-file pre-scan pass above).
@@ -476,33 +505,43 @@ int ulog_replay_init(ulog_replay_ctx_t *ctx, const char *filepath) {
 // Advance playback
 // ---------------------------------------------------------------------------
 
+// Seeking/looping must rebuild held values, never retain a future throttle,
+// attitude, or velocity when a sparse topic has no sample near the target.
+static void reset_playback(ulog_replay_ctx_t *ctx) {
+    ulog_parser_rewind(&ctx->parser);
+    memset(&ctx->state, 0, sizeof(ctx->state));
+    memset(&ctx->statustext, 0, sizeof(ctx->statustext));
+    ctx->home = ctx->initial_home;
+    ctx->home_from_topic = ctx->initial_home_from_topic;
+    ctx->current_nav_state = 0xFF;
+    ctx->first_pos_set = ctx->has_global_pos = ctx->ref_set = false;
+    ctx->ref_lat = ctx->ref_lon = ctx->ref_alt = 0;
+    ctx->prev_gpos_usec = ctx->last_pos_usec = ctx->throttle_sample_usec = 0;
+    ctx->gpos_vx = ctx->gpos_vy = ctx->gpos_vz = 0;
+    ctx->last_vx = ctx->last_vy = ctx->last_vz = 0;
+    ctx->last_x = ctx->last_y = ctx->last_z = 0;
+    ctx->last_lat_deg = ctx->last_lon_deg = ctx->last_alt_m = 0;
+}
+
+static void read_until(ulog_replay_ctx_t *ctx, uint64_t target) {
+    ulog_data_msg_t msg;
+    while (ulog_parser_next_until(&ctx->parser, &msg, target))
+        process_message(ctx, &msg);
+    ulog_expire_throttle(ctx, target);
+}
+
 bool ulog_replay_advance(ulog_replay_ctx_t *ctx, float dt, float speed, bool looping, bool interpolation) {
-    ctx->wall_accum += (double)dt * speed;
+    if (isfinite(dt) && isfinite(speed) && dt > 0.0f && speed > 0.0f)
+        ctx->wall_accum += (double)dt * speed;
     double effective_time = ctx->wall_accum + ctx->time_offset_s;
     if (effective_time < 0.0) effective_time = 0.0;
-    uint64_t target = ctx->parser.start_timestamp + (uint64_t)(effective_time * 1e6);
+    uint64_t target = ctx->parser.start_timestamp + (uint64_t)llround(effective_time * 1e6);
+    bool at_end = target >= ctx->parser.end_timestamp;
+    if (at_end) target = ctx->parser.end_timestamp;
 
-    // Clamp to end
-    if (target > ctx->parser.end_timestamp) {
-        if (looping) {
-            ulog_parser_rewind(&ctx->parser);
-            ctx->wall_accum = 0.0;
-            ctx->first_pos_set = false;
-            ctx->has_global_pos = false;
-            ctx->prev_gpos_usec = 0;
-            ctx->last_pos_usec = 0;
-            ctx->gpos_vx = ctx->gpos_vy = ctx->gpos_vz = 0.0f;
-            return true;
-        }
-        return false;
-    }
-
-    // Read all messages up to target timestamp
-    ulog_data_msg_t dmsg;
-    while (ulog_parser_next(&ctx->parser, &dmsg)) {
-        process_message(ctx, &dmsg);
-        if (dmsg.timestamp >= target) break;
-    }
+    // Consume every due record, including all topics at the same timestamp.
+    // Leave future records unread instead of advancing one record per frame.
+    read_until(ctx, target);
 
     // Dead-reckon position forward from last sample using velocity.
     // This smooths the 5-10 Hz position updates to match the render rate.
@@ -544,11 +583,9 @@ bool ulog_replay_advance(ulog_replay_ctx_t *ctx, float dt, float speed, bool loo
         }
     }
 
-    if (ctx->parser.eof) {
+    if (at_end) {
         if (looping) {
-            ulog_parser_rewind(&ctx->parser);
-            ctx->wall_accum = 0.0;
-            ctx->first_pos_set = false;
+            ulog_replay_seek(ctx, 0.0f);
             return true;
         }
         return false;
@@ -556,79 +593,17 @@ bool ulog_replay_advance(ulog_replay_ctx_t *ctx, float dt, float speed, bool loo
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Seek
-// ---------------------------------------------------------------------------
-
+// Replay from the beginning on a seek. Index-only seeks cannot recover held
+// optional topics that were last published outside the small index window.
+// Sequential reads are cheap for short telemetry clips; correctness takes
+// priority over seek latency for large logs until state checkpoints exist.
 void ulog_replay_seek(ulog_replay_ctx_t *ctx, float target_s) {
-    if (target_s < 0.0f) target_s = 0.0f;
-
-    float max_s = (float)((double)(ctx->parser.end_timestamp -
-                                    ctx->parser.start_timestamp) / 1e6);
-    double effective_s = (double)target_s + ctx->time_offset_s;
-    if (effective_s < 0.0) effective_s = 0.0;
-    if (effective_s > (double)max_s) effective_s = (double)max_s;
-
-    uint64_t target_usec = ctx->parser.start_timestamp +
-                           (uint64_t)(effective_s * 1e6);
-    // Seek one index entry earlier than the closest match to widen the scan
-    // window. This ensures we capture at least one position message even when
-    // global_pos is sparse (1-5 Hz) relative to the seek granularity (~20ms).
-    ulog_parser_seek_early(&ctx->parser, target_usec);
-    ctx->wall_accum = (double)target_s;  // wall_accum stays in shared clock space
-
-    // Update current_nav_state for the seek position
-    ctx->current_nav_state = 0xFF;
-    for (int i = ctx->mode_change_count - 1; i >= 0; i--) {
-        if (ctx->mode_changes[i].time_s <= (float)effective_s) {
-            ctx->current_nav_state = ctx->mode_changes[i].nav_state;
-            break;
-        }
-    }
-
-    // Read forward to populate state at the seek point
-    ulog_data_msg_t dmsg;
-    for (int i = 0; i < 2000 && ulog_parser_next(&ctx->parser, &dmsg); i++) {
-        process_message(ctx, &dmsg);
-        if (dmsg.timestamp >= target_usec) break;
-    }
-
-    // Dead-reckon position forward from last position sample to target time.
-    // This handles the case where the seek window didn't contain a position
-    // message (e.g. global_pos is sparser than the seek granularity).
-    if (ctx->last_pos_usec > 0 && target_usec > ctx->last_pos_usec) {
-        float dt_pos = (float)((double)(target_usec - ctx->last_pos_usec) / 1e6);
-        if (dt_pos > 0.5f) dt_pos = 0.5f;
-
-        if (ctx->has_global_pos) {
-            float vx = ctx->last_vx, vy = ctx->last_vy, vz = ctx->last_vz;
-            if (vx == 0.0f && vy == 0.0f && vz == 0.0f) {
-                vx = ctx->gpos_vx;
-                vy = ctx->gpos_vy;
-                vz = ctx->gpos_vz;
-            }
-
-            double meters_per_deg_lat = 111132.92;
-            double meters_per_deg_lon = 111132.92 * cos(ctx->last_lat_deg * ULOG_DEG_TO_RAD);
-            if (meters_per_deg_lon < 1.0) meters_per_deg_lon = 1.0;
-
-            double lat = ctx->last_lat_deg + (double)(vx * dt_pos) / meters_per_deg_lat;
-            double lon = ctx->last_lon_deg + (double)(vy * dt_pos) / meters_per_deg_lon;
-            float alt = ctx->last_alt_m - vz * dt_pos;
-
-            ctx->state.lat = (int32_t)(lat * 1e7);
-            ctx->state.lon = (int32_t)(lon * 1e7);
-            ctx->state.alt = (int32_t)(alt * 1000.0f);
-        } else {
-            float x = ctx->last_x + ctx->last_vx * dt_pos;
-            float y = ctx->last_y + ctx->last_vy * dt_pos;
-            float z = ctx->last_z + ctx->last_vz * dt_pos;
-
-            ulog_local_to_global(ctx->ref_lat, ctx->ref_lon, ctx->ref_alt,
-                                  x, y, z,
-                                  &ctx->state.lat, &ctx->state.lon, &ctx->state.alt);
-        }
-    }
+    if (!isfinite(target_s) || target_s < 0.0f) target_s = 0.0f;
+    reset_playback(ctx);
+    // Keep the playhead in shared wall-clock space, even when an aligned log
+    // starts later. advance() clamps only the local file target.
+    ctx->wall_accum = (double)target_s;
+    ulog_replay_advance(ctx, 0.0f, 1.0f, false, true);
 }
 
 // ---------------------------------------------------------------------------
