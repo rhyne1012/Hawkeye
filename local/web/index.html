@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flight Replay Local</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark" aria-hidden="true">↗</span><div><h1>Flight Replay <span>Local</span></h1><p>本機飛行回放 · Based on Hawkeye</p></div></div>
+    <div class="header-actions"><span class="local-badge">● 本機處理</span><button id="quit" class="quiet">結束服務</button></div>
+  </header>
+  <main>
+    <section class="file-bar" aria-label="檔案">
+      <button id="open" class="primary" disabled>開啟 ULog</button>
+      <input id="file" type="file" accept=".ulg" hidden>
+      <div class="file-detail"><strong id="filename">尚未選擇檔案</strong><span id="filemeta">選擇或拖入一個 .ulg 檔案</span></div>
+      <span id="status" role="status" aria-live="polite">啟動中</span>
+    </section>
+    <div id="error" role="alert" hidden></div>
+    <section id="viewer" aria-label="3D 飛行回放">
+      <canvas id="canvas" tabindex="0" aria-label="Hawkeye 3D 畫面；滑鼠拖曳旋轉視角，滾輪縮放"></canvas>
+      <div id="welcome"><span class="eyebrow">FLIGHT REPLAY</span><h2>從一份飛行紀錄開始</h2><p>開啟或拖入 ULog，探索飛行軌跡與姿態。</p><p class="muted">檔案留在你的電腦，不會上傳。</p></div>
+      <div id="busy" hidden><span class="spinner"></span><p id="busytext">正在啟動回放核心…</p></div>
+      <div id="drop-hint" hidden>放開以載入 ULog</div>
+    </section>
+    <section class="transport" aria-label="播放控制">
+      <button id="play" class="play" disabled aria-label="播放">▶</button>
+      <button id="restart" class="quiet" disabled>回到起點</button>
+      <div class="timeline"><label for="seek"><span>飛行時間</span><output id="time">00:00.0 / 00:00.0</output></label><input id="seek" type="range" min="0" max="1" step="0.02" value="0" disabled aria-label="回放時間軸"></div>
+    </section>
+    <footer><span>拖曳畫面：旋轉 · 滾輪：縮放 · C：切換視角 · H：切換 HUD · ?：說明</span><span id="engine-status">離線可用 · 單檔回放</span></footer>
+  </main>
+</body>
+</html>

@@ -53,6 +53,9 @@ Anyone may fork and republish Hawkeye under the terms of the license; see [FORKS
 
 ## Quickstart
 
+For the independent **Flight Replay Local** browser UI and macOS launcher
+(file picker, mouse timeline, local-only processing), see [local/README.md](local/README.md).
+
 Launch with PX4 SITL (single vehicle):
 
 ```bash

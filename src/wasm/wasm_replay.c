@@ -232,21 +232,48 @@ bool wasm_replay_advance(wasm_replay_ctx_t *ctx, float dt, float speed,
 void wasm_replay_seek(wasm_replay_ctx_t *ctx, float target_s) {
     const ulog_timeline_t *tl = ctl_of(ctx);
     if (!tl || tl->start_timestamp_us == 0) return;
-    if (target_s < 0.0f) target_s = 0.0f;
+    if (!isfinite(target_s)) return;
+    double duration = (double)(tl->end_timestamp_us - tl->start_timestamp_us) / 1e6;
+    double target = fmax(0.0, fmin((double)target_s, duration));
+    uint64_t target_us = tl->start_timestamp_us + (uint64_t)(target * 1e6);
 
-    // Mirror native's "seek_early + forward-scan to settle state" strategy.
-    // Binary-search each cursor to a point slightly before the target, then
-    // walk forward calling the shared apply helpers to rebuild coherent state.
-    uint64_t target_us = tl->start_timestamp_us + (uint64_t)(target_s * 1e6);
-    uint64_t early_us = target_us > 1000000 ? target_us - 1000000 : tl->start_timestamp_us;
+    // Rebuild from the latest sample of each topic, independent of the old
+    // playhead. A one-second forward scan alone leaves sparse status/airspeed
+    // topics (and data before their first sample) stuck in the future.
+    home_position_t saved_home = ctx->home;
+    memset(&ctx->state, 0, sizeof(ctx->state));
+    ctx->state.quaternion[0] = 1.0f;
+    ctx->current_nav_state = 0xff;
+    ctx->has_global_pos = false;
+    ctx->first_pos_set = false;
+    ctx->last_pos_usec = ctx->prev_gpos_usec = 0;
+    ctx->last_vx = ctx->last_vy = ctx->last_vz = 0.0f;
+    ctx->gpos_vx = ctx->gpos_vy = ctx->gpos_vz = 0.0f;
+    memset(&ctx->statustext, 0, sizeof(ctx->statustext));
 
-    int att_idx        = ulog_timeline_find_att_at       (tl, early_us);
-    int lpos_idx       = ulog_timeline_find_lpos_at      (tl, early_us);
-    int gpos_idx       = ulog_timeline_find_gpos_at      (tl, early_us);
-    int aspd_idx       = ulog_timeline_find_aspd_at      (tl, early_us);
-    int vstatus_idx    = ulog_timeline_find_vstatus_at   (tl, early_us);
-    int home_idx       = ulog_timeline_find_home_at      (tl, early_us);
-    int statustext_idx = ulog_timeline_find_statustext_at(tl, early_us);
+    int att_idx        = ulog_timeline_find_att_at       (tl, target_us);
+    int lpos_idx       = ulog_timeline_find_lpos_at      (tl, target_us);
+    int gpos_idx       = ulog_timeline_find_gpos_at      (tl, target_us);
+    int aspd_idx       = ulog_timeline_find_aspd_at      (tl, target_us);
+    int vstatus_idx    = ulog_timeline_find_vstatus_at   (tl, target_us);
+    int home_idx       = ulog_timeline_find_home_at      (tl, target_us);
+    int statustext_idx = ulog_timeline_find_statustext_at(tl, target_us);
+
+    if (lpos_idx >= 0) ulog_apply_lpos(ctx, &tl->lpos[lpos_idx]);
+    // Two global samples are needed for derived velocity in GPS-only logs.
+    if (gpos_idx > 0) ulog_apply_gpos(ctx, &tl->gpos[gpos_idx - 1]);
+    if (gpos_idx >= 0) ulog_apply_gpos(ctx, &tl->gpos[gpos_idx]);
+    // Preserve a fallback origin resolved during extraction; seeking must
+    // not move the flight's home to the current playhead's position.
+    if (saved_home.valid) ctx->home = saved_home;
+    if (att_idx >= 0) ulog_apply_attitude(ctx, &tl->att[att_idx]);
+    if (aspd_idx >= 0) ulog_apply_aspd(ctx, &tl->aspd[aspd_idx]);
+    if (vstatus_idx >= 0) ulog_apply_vstatus(ctx, &tl->vstatus[vstatus_idx]);
+    if (home_idx >= 0) ulog_apply_home(ctx, &tl->home[home_idx]);
+    int text_start = statustext_idx - STATUSTEXT_RING_SIZE + 1;
+    if (text_start < 0) text_start = 0;
+    for (int i = text_start; i <= statustext_idx; i++)
+        apply_statustext(ctx, &tl->statustext[i], tl->start_timestamp_us);
 
     ctx->att_cursor        = att_idx        < 0 ? 0 : att_idx + 1;
     ctx->lpos_cursor       = lpos_idx       < 0 ? 0 : lpos_idx + 1;
@@ -256,12 +283,8 @@ void wasm_replay_seek(wasm_replay_ctx_t *ctx, float target_s) {
     ctx->home_cursor       = home_idx       < 0 ? 0 : home_idx + 1;
     ctx->statustext_cursor = statustext_idx < 0 ? 0 : statustext_idx + 1;
 
-    ctx->prev_gpos_usec = 0;
-
-    advance_cursors_to(ctx, target_us);
     interpolate_position(ctx, target_us);
-
-    ctx->wall_accum = (double)target_s + ctx->time_offset_s;
+    ctx->wall_accum = target + ctx->time_offset_s;
 }
 
 void wasm_replay_close(wasm_replay_ctx_t *ctx) {

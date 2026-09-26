@@ -123,11 +123,14 @@ void hawkeye_destroy(void);
 EMSCRIPTEN_KEEPALIVE
 void hawkeye_set_playing(int playing);
 
+// Query actual playback state, including changes made by canvas shortcuts.
+EMSCRIPTEN_KEEPALIVE
+int hawkeye_get_playing(void);
+
 // Seek absolute playback position, measured in seconds from the start of
 // the loaded log. Clamped to [0, log_duration]. Ignored if no log is
-// loaded. After seek, replay state is settled by walking cursors forward
-// from a point slightly before the target, matching native's seek-early
-// + forward-scan semantics.
+// loaded or the target is non-finite. After seek, replay state is rebuilt
+// from each topic's latest sample at or before the target, then interpolated.
 EMSCRIPTEN_KEEPALIVE
 void hawkeye_seek(double seconds);
 

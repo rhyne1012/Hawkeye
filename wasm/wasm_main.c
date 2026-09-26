@@ -309,7 +309,7 @@ static void ds_init_static(data_source_t *ds, wasm_replay_ctx_t *r) {
     ds->ref_rejected = r->ref_rejected;
 
     ds->playback.speed          = 1.0f;
-    ds->playback.looping        = true;
+    ds->playback.looping        = false;
     ds->playback.interpolation  = true;
     ds->playback.paused         = false;
     ds->playback.progress       = 0.0f;
@@ -342,6 +342,7 @@ static void wasm_ds_poll(data_source_t *ds, float dt) {
         // long as more events remain or the replay is looping. State validity
         // is tracked separately on state.valid.
         ds->connected = still_playing || ds->playback.looping;
+        if (!ds->connected) ds->playback.paused = true;
     }
 
     ds->state = r->state;
@@ -1459,8 +1460,21 @@ EMSCRIPTEN_KEEPALIVE int hawkeye_finalize_multi_load(int mode);
 
 EMSCRIPTEN_KEEPALIVE
 int hawkeye_load_ulog_bytes(const uint8_t *buf, size_t len) {
-    if (hawkeye_begin_multi_load(1) != 0) return -1;
-    if (hawkeye_stage_ulog(0, buf, len) != 0) return -1;
+    if (!g.initialized || !buf || len == 0) return -1;
+    // Parse before releasing the current replay: a bad file must leave the
+    // previous flight usable, including its scene and playback controls.
+    wasm_replay_ctx_t candidate;
+    if (wasm_replay_init_from_bytes(&candidate, buf, len) != 0) return -1;
+    const ulog_timeline_t *tl = candidate.timeline;
+    if (tl->att_count == 0 || tl->end_timestamp_us <= tl->start_timestamp_us) {
+        wasm_replay_close(&candidate);
+        return -1;
+    }
+    if (hawkeye_begin_multi_load(1) != 0) {
+        wasm_replay_close(&candidate);
+        return -1;
+    }
+    g.replays[0] = candidate;
     return hawkeye_finalize_multi_load(1);
 }
 
@@ -1479,14 +1493,13 @@ int hawkeye_begin_multi_load(int count) {
     size_t target = (size_t)(8 + 60 + count * 4) * 1024 * 1024;
     emscripten_resize_heap(target);
 
-    if (g.log_loaded) {
-        for (int i = 0; i < g.vehicle_count; i++) {
-            wasm_replay_close(&g.replays[i]);
-            vehicle_cleanup(&g.vehicles[i]);
-            precomp_trail_cleanup(&g.precomp[i]);
-        }
-        g.log_loaded = false;
+    for (int i = 0; i < g.vehicle_count; i++) {
+        if (g.log_loaded) wasm_replay_close(&g.replays[i]);
+        if (g.vehicles[i].model.meshCount > 0) vehicle_cleanup(&g.vehicles[i]);
+        memset(&g.vehicles[i], 0, sizeof(g.vehicles[i]));
+        precomp_trail_cleanup(&g.precomp[i]);
     }
+    g.log_loaded = false;
     g.vehicle_count = count;
     g.selected      = 0;
     g.prev_selected = 0;
@@ -1725,11 +1738,20 @@ void hawkeye_set_playing(int playing) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+int hawkeye_get_playing(void) {
+    return g.initialized && g.log_loaded &&
+           !g.sources[g.selected].playback.paused;
+}
+
+EMSCRIPTEN_KEEPALIVE
 void hawkeye_seek(double seconds) {
     if (!g.initialized || !g.log_loaded) return;
+    if (!isfinite(seconds)) return;
     if (seconds < 0.0) seconds = 0.0;
     for (int i = 0; i < g.vehicle_count; i++) {
         data_source_seek(&g.sources[i], (float)seconds);
+        g.sources[i].connected = true;
+        g.prev_playback_pos[i] = g.sources[i].playback.position_s;
         vehicle_reset_trail(&g.vehicles[i]);
     }
     memset(g.corr, 0, sizeof(g.corr));
