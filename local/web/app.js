@@ -21,8 +21,13 @@ function paintTransport() {
   if (!dragging) $('seek').value = Math.min(duration, position);
   $('time').textContent = `${fmt(position)} / ${fmt(duration)}`;
   const playing = !!api.playing();
-  $('play').textContent = playing ? '❚❚' : '▶';
-  $('play').setAttribute('aria-label', playing ? '暫停' : '播放');
+  const label = playing ? '暫停' : '播放';
+  // Replacing the button's text node during a pointer press can suppress
+  // WebKit's click. Change it only when playback actually changes state.
+  if ($('play').getAttribute('aria-label') !== label) {
+    $('play').textContent = playing ? '❚❚' : '▶';
+    $('play').setAttribute('aria-label', label);
+  }
   $('seek').setAttribute('aria-valuetext', `${fmt(position)}，共 ${fmt(duration)}`);
 }
 function seek(seconds) {
