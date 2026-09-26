@@ -115,6 +115,10 @@ int ulog_parser_open(ulog_parser_t *p, const char *filepath);
 // Read next data message. Returns true if a message was read.
 bool ulog_parser_next(ulog_parser_t *p, ulog_data_msg_t *out);
 
+// Stop before a future DATA or LOGGING record without setting eof. Both data
+// and logging callbacks remain gated by playback time; the record is retained.
+bool ulog_parser_next_until(ulog_parser_t *p, ulog_data_msg_t *out, uint64_t target);
+
 // Seek to the beginning of the data section.
 void ulog_parser_rewind(ulog_parser_t *p);
 

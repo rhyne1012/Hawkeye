@@ -224,6 +224,10 @@ static void test_multi_drone_array_init(void) {
     for (int i = 0; i < count; i++) {
         assert(sources[i].playback.position_s > 0.0f);
         assert(sources[i].playback.progress > 0.0f);
+        // The fixed-wing fixture has no position until ~121 seconds.
+        // Do not rely on the old bug that consumed future data during the gap.
+        for (int step = 0; !sources[i].state.valid && step < 22000; step++)
+            data_source_poll(&sources[i], 0.05f);
         assert(sources[i].state.valid);
     }
 

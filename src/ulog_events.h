@@ -35,8 +35,18 @@ typedef struct {
     uint64_t timestamp_us;
     uint16_t ias_cms;               // indicated_airspeed_m_s * 100
     uint16_t tas_cms;               // true_airspeed_m_s * 100
-    uint32_t _pad;
-} ulog_aspd_event_t;                // 16 bytes
+    float cas_m_s;
+    uint8_t cas_present;
+    uint8_t _pad[7];
+} ulog_aspd_event_t;                // 24 bytes
+
+typedef struct {
+    uint64_t timestamp_us;
+    uint64_t sample_timestamp_us;
+    float pct;
+    uint8_t valid;
+    uint8_t _pad[3];
+} ulog_throttle_event_t;            // 24 bytes
 
 typedef struct {
     uint64_t timestamp_us;
@@ -52,7 +62,8 @@ typedef struct {
     double   lon_deg;
     float    alt_m;
     uint8_t  valid_hpos;
-    uint8_t  _pad[3];
+    uint8_t  valid_alt;
+    uint8_t  _pad[2];
 } ulog_home_event_t;                // 32 bytes
 
 typedef struct {
@@ -73,6 +84,7 @@ typedef struct {
     ulog_lpos_event_t       *lpos;        int lpos_count;        int lpos_cap;
     ulog_gpos_event_t       *gpos;        int gpos_count;        int gpos_cap;
     ulog_aspd_event_t       *aspd;        int aspd_count;        int aspd_cap;
+    ulog_throttle_event_t   *throttle;    int throttle_count;    int throttle_cap;
     ulog_vstatus_event_t    *vstatus;     int vstatus_count;     int vstatus_cap;
     ulog_home_event_t       *home;        int home_count;        int home_cap;
     ulog_statustext_event_t *statustext;  int statustext_count;  int statustext_cap;

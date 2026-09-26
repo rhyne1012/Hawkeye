@@ -85,6 +85,8 @@ bash local/scripts/test_core.sh /path/test.ulg  # additional real-log checks
 The core test compiles the WASM replay code as a native C test executable, using
 the WASM data layout. It checks sparse-topic backward seeks, start/end bounds,
 non-finite input and optional real-log seek results against linear topic lookups.
+The shared synthetic suite also checks frame-rate-independent timing, CAS/THR
+validity and zero values, stale/future throttle, Home priority/validity and loops.
 It is not a substitute for rendering tests in a browser.
 
 For browser validation, install Playwright in a development environment (tested
@@ -123,4 +125,8 @@ filenames/screenshots: keep it outside the repository.
 WASM integration changes add an actual playback-state getter, transactional
 single-log replacement, end-of-flight pause, and seek reconstruction from each
 topic's latest sample. This avoids leaving sparse flight-mode/airspeed data at
-a later time after scrubbing backwards. The native desktop entry point is unchanged.
+a later time after scrubbing backwards. Version 0.2.0 also integrates PR #1 into native and WASM replay: CAS, optional
+THR %, validated Home origin, and held-state resets on seeks/loops. See
+[the telemetry contract](../REPLAY_TELEMETRY.md). A PX4 log without the custom
+`replay_throttle` topic shows `--`; this is missing source data, not 0% throttle.
+No logo is included in this stage.

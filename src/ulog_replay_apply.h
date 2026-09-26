@@ -33,4 +33,8 @@ void ulog_apply_aspd    (ulog_replay_ctx_t *ctx, const ulog_aspd_event_t    *ev)
 void ulog_apply_vstatus (ulog_replay_ctx_t *ctx, const ulog_vstatus_event_t *ev);
 void ulog_apply_home    (ulog_replay_ctx_t *ctx, const ulog_home_event_t    *ev);
 
+void ulog_apply_throttle(ulog_replay_ctx_t *ctx, const ulog_throttle_event_t *ev);
+void ulog_expire_throttle(ulog_replay_ctx_t *ctx, uint64_t target_us);
+bool ulog_home_event_valid(const ulog_home_event_t *ev);
+
 #endif

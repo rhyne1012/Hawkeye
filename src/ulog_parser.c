@@ -297,13 +297,19 @@ int ulog_parser_open(ulog_parser_t *p, const char *filepath) {
                 first = false;
             }
 
-            p->end_timestamp = ts;
+            if (ts > p->end_timestamp) p->end_timestamp = ts;
 
             // Skip remaining payload
             int remaining = msg_size - 10;
             if (remaining > 0) fseek(p->fp, remaining, SEEK_CUR);
+        } else if ((char)msg_type == ULOG_MSG_LOGGING && msg_size >= 9) {
+            uint8_t header[9];
+            if (fread(header, 1, 9, p->fp) != 9) break;
+            uint64_t ts;
+            memcpy(&ts, header + 1, 8);
+            if (ts > p->end_timestamp) p->end_timestamp = ts;
+            fseek(p->fp, msg_size - 9, SEEK_CUR);
         } else {
-            // Skip non-DATA message
             fseek(p->fp, msg_size, SEEK_CUR);
         }
     }
@@ -315,8 +321,9 @@ int ulog_parser_open(ulog_parser_t *p, const char *filepath) {
     return 0;
 }
 
-bool ulog_parser_next(ulog_parser_t *p, ulog_data_msg_t *out) {
+bool ulog_parser_next_until(ulog_parser_t *p, ulog_data_msg_t *out, uint64_t target) {
     for (;;) {
+        long record_offset = ftell(p->fp);
         uint8_t msg_hdr[ULOG_MSG_HEADER_SIZE];
         if (fread(msg_hdr, 1, ULOG_MSG_HEADER_SIZE, p->fp) != ULOG_MSG_HEADER_SIZE) {
             p->eof = true;
@@ -333,6 +340,20 @@ bool ulog_parser_next(ulog_parser_t *p, ulog_data_msg_t *out) {
 
         if (fread(p->read_buf, 1, msg_size, p->fp) != msg_size) {
             p->eof = true;
+            return false;
+        }
+
+        uint64_t timestamp = 0;
+        bool timed = false;
+        if ((char)msg_type == ULOG_MSG_DATA && msg_size >= 10) {
+            memcpy(&timestamp, p->read_buf + 2, 8);
+            timed = true;
+        } else if ((char)msg_type == ULOG_MSG_LOGGING && msg_size >= 9) {
+            memcpy(&timestamp, p->read_buf + 1, 8);
+            timed = true;
+        }
+        if (timed && timestamp > target) {
+            fseek(p->fp, record_offset, SEEK_SET);
             return false;
         }
 
@@ -353,6 +374,10 @@ bool ulog_parser_next(ulog_parser_t *p, ulog_data_msg_t *out) {
         }
         // Skip non-DATA messages (DROPOUT, LOGGING, etc.)
     }
+}
+
+bool ulog_parser_next(ulog_parser_t *p, ulog_data_msg_t *out) {
+    return ulog_parser_next_until(p, out, UINT64_MAX);
 }
 
 void ulog_parser_rewind(ulog_parser_t *p) {

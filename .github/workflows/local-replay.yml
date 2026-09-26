@@ -3,10 +3,10 @@ name: Local replay
 on:
   pull_request:
     branches: [main]
-    paths: ['local/**', 'wasm/**', 'src/wasm/**', 'src/ulog_replay_apply.*', '.github/workflows/local-replay.yml']
+    paths: ['local/**', 'wasm/**', 'src/wasm/**', 'src/ulog_replay_apply.*', 'src/ulog_events.h', 'src/ulog_replay.h', 'src/mavlink_receiver.h', 'tests/test_sparse_replay.c', '.github/workflows/local-replay.yml']
   push:
     branches: [main]
-    paths: ['local/**', 'wasm/**', 'src/wasm/**', 'src/ulog_replay_apply.*', '.github/workflows/local-replay.yml']
+    paths: ['local/**', 'wasm/**', 'src/wasm/**', 'src/ulog_replay_apply.*', 'src/ulog_events.h', 'src/ulog_replay.h', 'src/mavlink_receiver.h', 'tests/test_sparse_replay.c', '.github/workflows/local-replay.yml']
 
 permissions:
   contents: read

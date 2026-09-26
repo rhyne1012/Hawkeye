@@ -148,6 +148,10 @@ void ulog_apply_aspd(ulog_replay_ctx_t *ctx, const ulog_aspd_event_t *ev) {
     if (ctx->first_pos_set) ctx->state.valid = true;
     ctx->state.ind_airspeed  = ev->ias_cms;
     ctx->state.true_airspeed = ev->tas_cms;
+    ctx->state.calibrated_airspeed_present = ev->cas_present;
+    ctx->state.calibrated_airspeed = ev->cas_m_s;
+    ctx->state.calibrated_airspeed_valid = ev->cas_present &&
+        isfinite(ev->cas_m_s) && ev->cas_m_s >= 0.0f;
 }
 
 void ulog_apply_vstatus(ulog_replay_ctx_t *ctx, const ulog_vstatus_event_t *ev) {
@@ -165,11 +169,32 @@ void ulog_apply_home(ulog_replay_ctx_t *ctx, const ulog_home_event_t *ev) {
     // home_rejected: pre-scan determined this log has no GPOS to confirm
     // home, so ignore home_position topic updates (native-compatible).
     if (ctx->home_rejected) return;
-    if (ev->lat_deg == 0.0 && ev->lon_deg == 0.0) return;
+    if (!ulog_home_event_valid(ev)) return;
 
     ctx->home.lat = (int32_t)(ev->lat_deg * 1e7);
     ctx->home.lon = (int32_t)(ev->lon_deg * 1e7);
     ctx->home.alt = (int32_t)(ev->alt_m   * 1000.0f);
     ctx->home.valid       = true;
     ctx->home_from_topic  = true;
+}
+
+void ulog_apply_throttle(ulog_replay_ctx_t *ctx, const ulog_throttle_event_t *ev) {
+    ctx->state.throttle_pct = ev->pct;
+    ctx->state.throttle_valid = ev->valid && isfinite(ev->pct) &&
+        ev->pct >= 0.0f && ev->pct <= 100.0f;
+    ctx->throttle_sample_usec = ev->sample_timestamp_us;
+}
+
+void ulog_expire_throttle(ulog_replay_ctx_t *ctx, uint64_t target_us) {
+    if (ctx->throttle_sample_usec > target_us ||
+        target_us - ctx->throttle_sample_usec > 2500000)
+        ctx->state.throttle_valid = false;
+}
+
+bool ulog_home_event_valid(const ulog_home_event_t *ev) {
+    return ev->valid_hpos && ev->valid_alt &&
+        isfinite(ev->lat_deg) && isfinite(ev->lon_deg) && isfinite(ev->alt_m) &&
+        fabs(ev->lat_deg) <= 90.0 && fabs(ev->lon_deg) <= 180.0 &&
+        fabs(ev->alt_m) < 2147483.0 && // safe conversion to int32 millimetres
+        (ev->lat_deg != 0.0 || ev->lon_deg != 0.0);
 }

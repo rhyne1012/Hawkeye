@@ -33,4 +33,7 @@ int ulog_timeline_find_vstatus_at   (const ulog_timeline_t *tl, uint64_t target_
 int ulog_timeline_find_home_at      (const ulog_timeline_t *tl, uint64_t target_us);
 int ulog_timeline_find_statustext_at(const ulog_timeline_t *tl, uint64_t target_us);
 
+int ulog_timeline_append_throttle(ulog_timeline_t *tl, const ulog_throttle_event_t *ev);
+int ulog_timeline_find_throttle_at(const ulog_timeline_t *tl, uint64_t target_us);
+
 #endif

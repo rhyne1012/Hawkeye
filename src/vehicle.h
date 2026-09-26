@@ -88,6 +88,10 @@ typedef struct {
     float ground_speed;      // m/s
     float vertical_speed;    // m/s (positive = climbing)
     float airspeed;          // m/s
+    bool airspeed_is_cas;
+    bool airspeed_valid;
+    float throttle_pct;
+    bool throttle_valid;
     float altitude_rel;      // meters above origin
     int red_material_idx;    // material index for port arms (-1 if not found)
     int green_material_idx;  // material index for starboard arms (-1 if not found)
